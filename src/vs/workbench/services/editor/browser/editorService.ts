@@ -12,7 +12,8 @@ import { ResourceMap, ResourceSet } from '../../../../base/common/map.js';
 import { IFileService, FileOperationEvent, FileOperation, FileChangesEvent, FileChangeType } from '../../../../platform/files/common/files.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
-import { joinPath } from '../../../../base/common/resources.js';
+import { extname, joinPath } from '../../../../base/common/resources.js';
+import { Schemas } from '../../../../base/common/network.js';
 import { DiffEditorInput } from '../../../common/editor/diffEditorInput.js';
 import { SideBySideEditor as SideBySideEditorPane } from '../../../browser/parts/editor/sideBySideEditor.js';
 import { IEditorGroupsService, IEditorGroup, GroupsOrder, IEditorReplacement, isEditorReplacement, ICloseEditorOptions, IEditorGroupsContainer } from '../common/editorGroupsService.js';
@@ -35,6 +36,17 @@ import { IHostService } from '../../host/browser/host.js';
 import { findGroup } from '../common/editorGroupFinder.js';
 import { ITextEditorService } from '../../textfile/common/textEditorService.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+
+const RUITUCONFIG_STUDIO_OPEN_LOCATION_COMMAND = 'ruitucfg.studio.openLocation';
+
+function isRuiTuConfigStudioResource(resource: URI | undefined): resource is URI {
+	return resource?.scheme === Schemas.file && extname(resource).toLowerCase() === '.csvx';
+}
+
+function isExplicitEditorOverride(options: IEditorOptions | undefined): boolean {
+	return options?.override !== undefined;
+}
 
 export class EditorService extends Disposable implements EditorServiceImpl {
 
@@ -78,7 +90,8 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 		@IEditorResolverService private readonly editorResolverService: IEditorResolverService,
 		@IWorkspaceTrustRequestService private readonly workspaceTrustRequestService: IWorkspaceTrustRequestService,
 		@IHostService private readonly hostService: IHostService,
-		@ITextEditorService private readonly textEditorService: ITextEditorService
+		@ITextEditorService private readonly textEditorService: ITextEditorService,
+		@ICommandService private readonly commandService: ICommandService
 	) {
 		super();
 
@@ -91,7 +104,7 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 	}
 
 	createScoped(editorGroupsContainer: IEditorGroupsContainer, disposables: DisposableStore): IEditorService {
-		return disposables.add(new EditorService(editorGroupsContainer, this.editorGroupService, this.instantiationService, this.fileService, this.configurationService, this.contextService, this.uriIdentityService, this.editorResolverService, this.workspaceTrustRequestService, this.hostService, this.textEditorService));
+		return disposables.add(new EditorService(editorGroupsContainer, this.editorGroupService, this.instantiationService, this.fileService, this.configurationService, this.contextService, this.uriIdentityService, this.editorResolverService, this.workspaceTrustRequestService, this.hostService, this.textEditorService, this.commandService));
 	}
 
 	private registerListeners(): void {
@@ -542,6 +555,11 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 			preferredGroup = optionsOrPreferredGroup;
 		}
 
+		const ruiTuConfigStudioEditorPane = await this.tryOpenRuiTuConfigStudioEditor(editor, options);
+		if (ruiTuConfigStudioEditorPane) {
+			return ruiTuConfigStudioEditorPane;
+		}
+
 		// Resolve override unless disabled
 		if (!isEditorInput(editor)) {
 			const resolvedEditor = await this.editorResolverService.resolveEditor(editor, preferredGroup);
@@ -590,6 +608,27 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 		}
 
 		return group.openEditor(typedEditor, options);
+	}
+
+	private async tryOpenRuiTuConfigStudioEditor(editor: EditorInput | IUntypedEditorInput, options: IEditorOptions | undefined): Promise<IEditorPane | undefined> {
+		if (!isResourceEditorInput(editor) || !isRuiTuConfigStudioResource(editor.resource) || isExplicitEditorOverride(options)) {
+			return undefined;
+		}
+
+		const selection = (options as { selection?: { startLineNumber?: number; startColumn?: number } } | undefined)?.selection;
+
+		try {
+			await this.commandService.executeCommand(RUITUCONFIG_STUDIO_OPEN_LOCATION_COMMAND, {
+				uri: editor.resource.toString(),
+				filePath: editor.resource.fsPath,
+				line: typeof selection?.startLineNumber === 'number' ? selection.startLineNumber - 1 : undefined,
+				character: typeof selection?.startColumn === 'number' ? selection.startColumn - 1 : undefined
+			});
+
+			return this.activeEditorPane;
+		} catch {
+			return undefined;
+		}
 	}
 
 	//#endregion
