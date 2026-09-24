@@ -16,7 +16,7 @@ import { CustomEditorInput } from './customEditorInput.js';
 import { CustomEditorDiffInput, CustomEditorSideBySideDiffInput } from './customEditorDiffInput.js';
 import { CustomEditorService } from './customEditors.js';
 
-registerSingleton(ICustomEditorService, CustomEditorService, InstantiationType.Delayed);
+registerSingleton(ICustomEditorService, CustomEditorService, InstantiationType.Eager);
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane)
 	.registerEditorPane(

@@ -7,6 +7,7 @@ import { ICodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { EditorContributionInstantiation, registerEditorContribution } from '../../../../editor/browser/editorExtensions.js';
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { ReferencesController } from '../../../../editor/contrib/gotoSymbol/browser/peek/referencesController.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -19,6 +20,7 @@ export class WorkbenchReferencesController extends ReferencesController {
 		editor: ICodeEditor,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@ICodeEditorService editorService: ICodeEditorService,
+		@ICommandService commandService: ICommandService,
 		@INotificationService notificationService: INotificationService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IStorageService storageService: IStorageService,
@@ -29,6 +31,7 @@ export class WorkbenchReferencesController extends ReferencesController {
 			editor,
 			contextKeyService,
 			editorService,
+			commandService,
 			notificationService,
 			instantiationService,
 			storageService,

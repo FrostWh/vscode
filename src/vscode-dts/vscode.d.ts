@@ -7099,6 +7099,12 @@ declare module 'vscode' {
 	export class Diagnostic {
 
 		/**
+		 * Optional display-only location in the LiConfig Problems view, e.g. A6.
+		 * Does not change the range used for navigation or editor decorations.
+		 */
+		locationLabel?: string;
+
+		/**
 		 * The range to which this diagnostic applies.
 		 */
 		range: Range;

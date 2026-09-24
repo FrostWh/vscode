@@ -223,7 +223,7 @@ class MarkerFileColumnRenderer implements ITableRenderer<MarkerTableItem, IMarke
 	}
 
 	renderElement(element: MarkerTableItem, index: number, templateData: IMarkerFileColumnTemplateData): void {
-		const positionLabel = Messages.MARKERS_PANEL_AT_LINE_COL_NUMBER(element.marker.startLineNumber, element.marker.startColumn);
+		const positionLabel = Messages.MARKERS_PANEL_LOCATION(element.marker);
 
 		templateData.columnElement.title = `${this.labelService.getUriLabel(element.marker.resource, { relative: false })} ${positionLabel}`;
 		templateData.fileLabel.set(this.labelService.getUriLabel(element.marker.resource, { relative: true }), element.fileMatches);

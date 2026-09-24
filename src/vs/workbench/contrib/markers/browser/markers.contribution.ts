@@ -31,7 +31,7 @@ import { SyncDescriptor } from '../../../../platform/instantiation/common/descri
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
-import { ViewAction } from '../../../browser/parts/views/viewPane.js';
+import { getActiveMarkersView, ProblemsViewAction } from './markersEditor.js';
 import { IActivityService, NumberBadge } from '../../../services/activity/common/activity.js';
 import { viewFilterSubmenu } from '../../../browser/parts/views/viewFilter.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -50,7 +50,7 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 		secondary: [KeyMod.CtrlCmd | KeyCode.DownArrow]
 	},
 	handler: (accessor, args: any) => {
-		const markersView = accessor.get(IViewsService).getActiveViewWithId<MarkersView>(Markers.MARKERS_VIEW_ID)!;
+		const markersView = getActiveMarkersView(accessor)!;
 		markersView.openFileAtElement(markersView.getFocusElement(), false, false, true);
 	}
 });
@@ -64,7 +64,7 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 		primary: KeyMod.WinCtrl | KeyCode.Enter
 	},
 	handler: (accessor, args: any) => {
-		const markersView = accessor.get(IViewsService).getActiveViewWithId<MarkersView>(Markers.MARKERS_VIEW_ID)!;
+		const markersView = getActiveMarkersView(accessor)!;
 		markersView.openFileAtElement(markersView.getFocusElement(), false, true, true);
 	}
 });
@@ -85,7 +85,7 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	when: MarkersContextKeys.MarkerFocusContextKey,
 	primary: KeyMod.CtrlCmd | KeyCode.Period,
 	handler: (accessor, args: any) => {
-		const markersView = accessor.get(IViewsService).getActiveViewWithId<MarkersView>(Markers.MARKERS_VIEW_ID)!;
+		const markersView = getActiveMarkersView(accessor)!;
 		const focusedElement = markersView.getFocusElement();
 		if (focusedElement instanceof Marker) {
 			markersView.showQuickFixes(focusedElement);
@@ -160,7 +160,7 @@ Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews
 const workbenchRegistry = Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench);
 
 // actions
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.table.${Markers.MARKERS_VIEW_ID}.viewAsTree`,
@@ -184,7 +184,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.table.${Markers.MARKERS_VIEW_ID}.viewAsTable`,
@@ -208,7 +208,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.${Markers.MARKERS_VIEW_ID}.toggleErrors`,
@@ -233,7 +233,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.${Markers.MARKERS_VIEW_ID}.toggleWarnings`,
@@ -258,7 +258,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.${Markers.MARKERS_VIEW_ID}.toggleInfos`,
@@ -283,7 +283,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.${Markers.MARKERS_VIEW_ID}.toggleActiveFile`,
@@ -308,7 +308,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.${Markers.MARKERS_VIEW_ID}.toggleExcludedFiles`,
@@ -347,7 +347,7 @@ registerAction2(class extends Action2 {
 	}
 });
 
-abstract class MarkersViewAction extends ViewAction<IMarkersView> {
+abstract class MarkersViewAction extends ProblemsViewAction {
 
 	protected getSelectedMarkers(markersView: IMarkersView): Marker[] {
 		const selection = markersView.getFocusedSelectedElements() || markersView.getAllResourceMarkers();
@@ -419,7 +419,7 @@ registerAction2(class extends MarkersViewAction {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: Markers.RELATED_INFORMATION_COPY_MESSAGE_ACTION_ID,
@@ -441,7 +441,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: Markers.FOCUS_PROBLEMS_FROM_FILTER,
@@ -459,7 +459,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: Markers.MARKERS_VIEW_FOCUS_FILTER,
@@ -477,7 +477,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: Markers.MARKERS_VIEW_SHOW_MULTILINE_MESSAGE,
@@ -495,7 +495,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: Markers.MARKERS_VIEW_SHOW_SINGLELINE_MESSAGE,
@@ -513,7 +513,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: Markers.MARKERS_VIEW_CLEAR_FILTER_TEXT,
@@ -532,7 +532,7 @@ registerAction2(class extends ViewAction<IMarkersView> {
 	}
 });
 
-registerAction2(class extends ViewAction<IMarkersView> {
+registerAction2(class extends ProblemsViewAction {
 	constructor() {
 		super({
 			id: `workbench.actions.treeView.${Markers.MARKERS_VIEW_ID}.collapseAll`,

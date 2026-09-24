@@ -256,6 +256,7 @@ export namespace Diagnostic {
 		return {
 			...Range.from(value.range),
 			message: value.message,
+			locationLabel: value.locationLabel,
 			source: value.source,
 			code,
 			severity: DiagnosticSeverity.from(value.severity),
@@ -266,6 +267,7 @@ export namespace Diagnostic {
 
 	export function to(value: IMarkerData): vscode.Diagnostic {
 		const res = new types.Diagnostic(Range.to(value), value.message, DiagnosticSeverity.to(value.severity));
+		res.locationLabel = value.locationLabel;
 		res.source = value.source;
 		res.code = isString(value.code) ? value.code : value.code?.value;
 		res.relatedInformation = value.relatedInformation && value.relatedInformation.map(DiagnosticRelatedInformation.to);

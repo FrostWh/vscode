@@ -107,6 +107,8 @@ export namespace MarkerSeverity {
  * A structure defining a problem/warning/etc.
  */
 export interface IMarkerData {
+	/** Display-only source location; ranges remain authoritative for navigation. */
+	locationLabel?: string;
 	code?: string | { value: string; target: URI };
 	severity: MarkerSeverity;
 	message: string;
@@ -127,6 +129,8 @@ export interface IResourceMarker {
 }
 
 export interface IMarker {
+	/** Display-only source location; ranges remain authoritative for navigation. */
+	locationLabel?: string;
 	owner: string;
 	resource: URI;
 	severity: MarkerSeverity;

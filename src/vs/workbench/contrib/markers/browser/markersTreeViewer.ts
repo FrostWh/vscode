@@ -408,7 +408,7 @@ class MarkerWidget extends Disposable {
 		}
 
 		const lnCol = dom.append(parent, dom.$('span.marker-line'));
-		lnCol.textContent = Messages.MARKERS_PANEL_AT_LINE_COL_NUMBER(marker.startLineNumber, marker.startColumn);
+		lnCol.textContent = Messages.MARKERS_PANEL_LOCATION(marker);
 	}
 
 }
@@ -670,7 +670,7 @@ export class MarkerViewModel extends Disposable {
 				pinned: false,
 				revealIfVisible: true
 			},
-		}, ACTIVE_GROUP).then(() => undefined);
+		}, ACTIVE_GROUP).then(() => void 0);
 	}
 
 	private getModel(waitForModel: boolean): Promise<ITextModel | null> {

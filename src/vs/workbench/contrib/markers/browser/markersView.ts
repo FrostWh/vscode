@@ -45,7 +45,7 @@ import { RangeHighlightDecorations } from '../../../browser/codeeditor.js';
 import { ResourceListDnDHandler } from '../../../browser/dnd.js';
 import { ResourceLabels } from '../../../browser/labels.js';
 import { FilterViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
-import { EditorResourceAccessor, SideBySideEditor } from '../../../common/editor.js';
+import { EditorResourceAccessor, GroupIdentifier, SideBySideEditor } from '../../../common/editor.js';
 import { Memento } from '../../../common/memento.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
@@ -106,6 +106,12 @@ export interface IProblemsWidget {
 	updateMarker(marker: Marker): void;
 }
 
+export interface IMarkersViewOptions extends IViewPaneOptions {
+	readonly markerSource?: string;
+	readonly storageId?: string;
+	readonly openEditorGroup?: (sideBySide: boolean) => GroupIdentifier;
+}
+
 export class MarkersView extends FilterViewPane implements IMarkersView {
 
 	private lastSelectedRelativeTop: number = 0;
@@ -138,7 +144,7 @@ export class MarkersView extends FilterViewPane implements IMarkersView {
 	readonly onDidChangeVisibility = this.onDidChangeBodyVisibility;
 
 	constructor(
-		options: IViewPaneOptions,
+		private readonly markersOptions: IMarkersViewOptions,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IViewDescriptorService viewDescriptorService: IViewDescriptorService,
 		@IEditorService private readonly editorService: IEditorService,
@@ -154,7 +160,8 @@ export class MarkersView extends FilterViewPane implements IMarkersView {
 		@IThemeService themeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
 	) {
-		const memento = new Memento<IMarkersPanelState>(Markers.MARKERS_VIEW_STORAGE_ID, storageService);
+		const options = markersOptions;
+		const memento = new Memento<IMarkersPanelState>(options.storageId ?? Markers.MARKERS_VIEW_STORAGE_ID, storageService);
 		const panelState = memento.getMemento(StorageScope.WORKSPACE, StorageTarget.MACHINE);
 		super({
 			...options,
@@ -300,7 +307,7 @@ export class MarkersView extends FilterViewPane implements IMarkersView {
 	public openFileAtElement(element: any, preserveFocus: boolean, sideByside: boolean, pinned: boolean): boolean {
 		const { resource, selection } = element instanceof Marker ? { resource: element.resource, selection: element.range } :
 			element instanceof RelatedInformation ? { resource: element.raw.resource, selection: element.raw } :
-				'marker' in element ? { resource: element.marker.resource, selection: element.marker.range } :
+				element && 'marker' in element ? { resource: element.marker.resource, selection: element.marker.range } :
 					{ resource: null, selection: null };
 		if (resource && selection) {
 			this.editorService.openEditor({
@@ -311,7 +318,7 @@ export class MarkersView extends FilterViewPane implements IMarkersView {
 					pinned,
 					revealIfVisible: true
 				},
-			}, sideByside ? SIDE_GROUP : ACTIVE_GROUP).then(editor => {
+			}, this.markersOptions.openEditorGroup?.(sideByside) ?? (sideByside ? SIDE_GROUP : ACTIVE_GROUP)).then(editor => {
 				if (editor && preserveFocus) {
 					this.rangeHighlightDecorations.highlightRange({ resource, range: selection }, <ICodeEditor>editor.getControl());
 				} else {
@@ -546,7 +553,8 @@ export class MarkersView extends FilterViewPane implements IMarkersView {
 		const disposables = [];
 
 		// Markers Model
-		const readMarkers = (resource?: URI) => this.markerService.read({ resource, severities: MarkerSeverity.Error | MarkerSeverity.Warning | MarkerSeverity.Info });
+		const readMarkers = (resource?: URI) => this.markerService.read({ resource, severities: MarkerSeverity.Error | MarkerSeverity.Warning | MarkerSeverity.Info })
+			.filter(marker => !this.markersOptions.markerSource || marker.source === this.markersOptions.markerSource);
 		this.markersModel.setResourceMarkers(groupBy(readMarkers(), compareMarkersByUri).map(group => [group[0].resource, group]));
 		disposables.push(Event.debounce<readonly URI[], ResourceMap<URI>>(this.markerService.onMarkerChanged, (resourcesMap, resources) => {
 			resourcesMap = resourcesMap || new ResourceMap<URI>();

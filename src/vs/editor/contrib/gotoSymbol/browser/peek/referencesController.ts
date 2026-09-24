@@ -7,6 +7,9 @@ import { CancelablePromise, createCancelablePromise } from '../../../../../base/
 import { onUnexpectedError } from '../../../../../base/common/errors.js';
 import { KeyChord, KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { Schemas } from '../../../../../base/common/network.js';
+import { extname } from '../../../../../base/common/resources.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { ICodeEditor } from '../../../../browser/editorBrowser.js';
 import { ICodeEditorService } from '../../../../browser/services/codeEditorService.js';
 import { EditorOption } from '../../../../common/config/editorOptions.js';
@@ -17,7 +20,7 @@ import { Location } from '../../../../common/languages.js';
 import { PeekContext } from '../../../peekView/browser/peekView.js';
 import { getOuterEditor } from '../../../../browser/widget/codeEditor/embeddedCodeEditorWidget.js';
 import * as nls from '../../../../../nls.js';
-import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../../../platform/contextkey/common/contextkey.js';
 import { TextEditorSelectionSource } from '../../../../../platform/editor/common/editor.js';
@@ -32,6 +35,17 @@ import { EditorContextKeys } from '../../../../common/editorContextKeys.js';
 import { InputFocusedContext } from '../../../../../platform/contextkey/common/contextkeys.js';
 
 export const ctxReferenceSearchVisible = new RawContextKey<boolean>('referenceSearchVisible', false, nls.localize('referenceSearchVisible', "Whether reference peek is visible, like 'Peek References' or 'Peek Definition'"));
+
+const LICONFIG_OPEN_TABULAR_LOCATION_COMMAND = 'liconfig.studio.openLocation';
+
+function isLiConfigTabularResource(resource: URI | undefined): resource is URI {
+	if (resource?.scheme !== Schemas.file && resource?.scheme !== 'liconfig-xlsx') {
+		return false;
+	}
+
+	const extension = extname(resource).toLowerCase();
+	return extension === '.csv' || extension === '.xlsx';
+}
 
 export abstract class ReferencesController implements IEditorContribution {
 
@@ -56,6 +70,7 @@ export abstract class ReferencesController implements IEditorContribution {
 		private readonly _editor: ICodeEditor,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@ICodeEditorService private readonly _editorService: ICodeEditorService,
+		@ICommandService private readonly _commandService: ICommandService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IStorageService private readonly _storageService: IStorageService,
@@ -245,49 +260,80 @@ export abstract class ReferencesController implements IEditorContribution {
 		this._requestIdPool += 1; // Cancel pending requests
 	}
 
+	private async _tryOpenLiConfigTabularReference(ref: Location): Promise<boolean> {
+		if (!isLiConfigTabularResource(ref.uri)) {
+			return false;
+		}
+
+		const range = Range.lift(ref.range).collapseToStart();
+		try {
+			return await this._commandService.executeCommand<boolean>(LICONFIG_OPEN_TABULAR_LOCATION_COMMAND, {
+				uri: ref.uri.toString(),
+				filePath: ref.uri.fsPath,
+				line: Math.max(0, range.startLineNumber - 1),
+				character: Math.max(0, range.startColumn - 1)
+			}) === true;
+		} catch {
+			return false;
+		}
+	}
+
 	private _gotoReference(ref: Location, pinned: boolean): Promise<unknown> {
 		this._widget?.hide();
 
 		this._ignoreModelChangeEvent = true;
 		const range = Range.lift(ref.range).collapseToStart();
 
-		return this._editorService.openCodeEditor({
-			resource: ref.uri,
-			options: { selection: range, selectionSource: TextEditorSelectionSource.JUMP, pinned }
-		}, this._editor).then(openedEditor => {
-			this._ignoreModelChangeEvent = false;
-
-			if (!openedEditor || !this._widget) {
-				// something went wrong...
-				this.closeWidget();
+		// #if FROST_MODIFY // [Frostwang], Reveal LiConfig tabular references in the grid editor through the shared bridge
+		return this._tryOpenLiConfigTabularReference(ref).then(handled => {
+			if (handled) {
+				this._ignoreModelChangeEvent = false;
+				this.closeWidget(false);
 				return;
 			}
 
-			if (this._editor === openedEditor) {
-				//
-				this._widget.show(range);
-				this._widget.focusOnReferenceTree();
+			return this._editorService.openCodeEditor({
+				resource: ref.uri,
+				options: { selection: range, selectionSource: TextEditorSelectionSource.JUMP, pinned }
+			}, this._editor).then(openedEditor => {
+				this._ignoreModelChangeEvent = false;
 
-			} else {
-				// we opened a different editor instance which means a different controller instance.
-				// therefore we stop with this controller and continue with the other
-				const other = ReferencesController.get(openedEditor);
-				const model = this._model!.clone();
+				if (!openedEditor || !this._widget) {
+					// something went wrong...
+					this.closeWidget();
+					return;
+				}
 
-				this.closeWidget();
-				openedEditor.focus();
+				if (this._editor === openedEditor) {
+					//
+					this._widget.show(range);
+					this._widget.focusOnReferenceTree();
 
-				other?.toggleWidget(
-					range,
-					createCancelablePromise(_ => Promise.resolve(model)),
-					this._peekMode ?? false
-				);
-			}
+				} else {
+					// we opened a different editor instance which means a different controller instance.
+					// therefore we stop with this controller and continue with the other
+					const other = ReferencesController.get(openedEditor);
+					const model = this._model!.clone();
 
+					this.closeWidget();
+					openedEditor.focus();
+
+					other?.toggleWidget(
+						range,
+						createCancelablePromise(_ => Promise.resolve(model)),
+						this._peekMode ?? false
+					);
+				}
+
+			}, (err) => {
+				this._ignoreModelChangeEvent = false;
+				onUnexpectedError(err);
+			});
 		}, (err) => {
 			this._ignoreModelChangeEvent = false;
 			onUnexpectedError(err);
 		});
+		// #endif // FROST_MODIFY
 	}
 
 	openReference(ref: Location, sideBySide: boolean, pinned: boolean): void {
@@ -297,10 +343,18 @@ export abstract class ReferencesController implements IEditorContribution {
 		}
 
 		const { uri, range } = ref;
-		this._editorService.openCodeEditor({
-			resource: uri,
-			options: { selection: range, selectionSource: TextEditorSelectionSource.JUMP, pinned }
-		}, this._editor, sideBySide);
+		// #if FROST_MODIFY // [Frostwang], Reveal LiConfig tabular references in the grid editor through the shared bridge
+		this._tryOpenLiConfigTabularReference(ref).then(handled => {
+			if (handled) {
+				return;
+			}
+
+			this._editorService.openCodeEditor({
+				resource: uri,
+				options: { selection: range, selectionSource: TextEditorSelectionSource.JUMP, pinned }
+			}, this._editor, sideBySide);
+		});
+		// #endif // FROST_MODIFY
 	}
 }
 

@@ -14,6 +14,7 @@ import { IInstantiationService } from '../../instantiation/common/instantiation.
 import { ILogService } from '../../log/common/log.js';
 import { IWindowState, WindowMode, defaultAuxWindowState } from '../../window/electron-main/window.js';
 import { IDefaultBrowserWindowOptionsOverrides, WindowStateValidator, defaultBrowserWindowOptions, getLastFocused } from '../../windows/electron-main/windows.js';
+import { IStateService } from '../../state/node/state.js';
 
 export class AuxiliaryWindowsMainService extends Disposable implements IAuxiliaryWindowsMainService {
 
@@ -36,10 +37,11 @@ export class AuxiliaryWindowsMainService extends Disposable implements IAuxiliar
 
 	private readonly windows = new Map<number /* webContents ID */, AuxiliaryWindow>();
 
-	private readonly pendingWindowOptionsQueue: BrowserWindowConstructorOptions[] = [];
+	private readonly pendingWindowOptionsQueue: { options: BrowserWindowConstructorOptions; stateKey?: string }[] = [];
 
 	constructor(
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IStateService private readonly stateService: IStateService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -93,22 +95,28 @@ export class AuxiliaryWindowsMainService extends Disposable implements IAuxiliar
 	}
 
 	createWindow(details: HandlerDetails): BrowserWindowConstructorOptions {
-		const { state, overrides } = this.computeWindowStateAndOverrides(details);
+		const { state, overrides, stateKey } = this.computeWindowStateAndOverrides(details);
 		const options = this.instantiationService.invokeFunction(defaultBrowserWindowOptions, state, overrides, {
 			preload: FileAccess.asFileUri('vs/base/parts/sandbox/electron-browser/preload-aux.js').fsPath
 		});
-		this.pendingWindowOptionsQueue.push(options);
+		this.pendingWindowOptionsQueue.push({ options, stateKey });
 		return options;
 	}
 
-	private computeWindowStateAndOverrides(details: HandlerDetails): { readonly state: IWindowState; readonly overrides: IDefaultBrowserWindowOptionsOverrides } {
+	private computeWindowStateAndOverrides(details: HandlerDetails): { readonly state: IWindowState; readonly overrides: IDefaultBrowserWindowOptionsOverrides; readonly stateKey?: string } {
 		const windowState: IWindowState = {};
+		let stateKey: string | undefined;
 		const overrides: IDefaultBrowserWindowOptionsOverrides = {};
 
 		const features = details.features.split(','); // for example: popup=yes,left=270,top=14.5,width=1024,height=768
 		for (const feature of features) {
 			const [key, value] = feature.split('=');
 			switch (key) {
+				case 'window-state-key':
+					if (value && value.length < 2048) {
+						stateKey = `auxiliaryWindow.state.${value}`;
+					}
+					break;
 				case 'width':
 					windowState.width = parseInt(value, 10);
 					break;
@@ -153,11 +161,13 @@ export class AuxiliaryWindowsMainService extends Disposable implements IAuxiliar
 			}
 		}
 
-		const state = WindowStateValidator.validateWindowState(this.logService, windowState) ?? defaultAuxWindowState();
+		const savedState = stateKey ? this.stateService.getItem<IWindowState>(stateKey) : undefined;
+		const state = (savedState && WindowStateValidator.validateWindowState(this.logService, savedState))
+			?? WindowStateValidator.validateWindowState(this.logService, windowState) ?? defaultAuxWindowState();
 
 		this.logService.trace('[aux window] using window state', state);
 
-		return { state, overrides };
+		return { state, overrides, stateKey };
 	}
 
 	registerWindow(webContents: WebContents): void {
@@ -165,7 +175,7 @@ export class AuxiliaryWindowsMainService extends Disposable implements IAuxiliar
 
 		const windowOptions = this.pendingWindowOptionsQueue.shift();
 
-		const auxiliaryWindow = this.instantiationService.createInstance(AuxiliaryWindow, webContents, windowOptions);
+		const auxiliaryWindow = this.instantiationService.createInstance(AuxiliaryWindow, webContents, windowOptions?.options, windowOptions?.stateKey);
 
 		this.windows.set(auxiliaryWindow.id, auxiliaryWindow);
 		disposables.add(toDisposable(() => this.windows.delete(auxiliaryWindow.id)));

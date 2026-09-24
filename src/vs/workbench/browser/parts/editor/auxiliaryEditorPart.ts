@@ -14,6 +14,7 @@ import { ContextKeyExpr, IContextKeyService } from '../../../../platform/context
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { hasCustomTitlebar } from '../../../../platform/window/common/window.js';
 import { IEditorGroupView, IEditorPartsView } from './editor.js';
@@ -119,6 +120,7 @@ export class AuxiliaryEditorPart {
 		@IStatusbarService private readonly statusbarService: IStatusbarService,
 		@ITitleService private readonly titleService: ITitleService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService
 	) {
 	}
@@ -189,7 +191,10 @@ export class AuxiliaryEditorPart {
 		}
 
 		// Auxiliary Window
-		const auxiliaryWindow = disposables.add(await this.auxiliaryWindowService.open(options));
+		const auxiliaryWindow = disposables.add(await this.auxiliaryWindowService.open({
+			...options,
+			windowStateKey: options?.windowStateKey ? `${this.contextService.getWorkspace().id}/${options.windowStateKey}` : undefined
+		}));
 
 		// Editor Part
 		const editorPartContainer = $('.part.editor', { role: 'main' });

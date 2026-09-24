@@ -38,6 +38,7 @@ interface IEditorPartsUIState {
 
 interface IAuxiliaryEditorPartState extends IAuxiliaryWindowOpenOptions {
 	readonly state: IEditorPartUIState;
+	readonly windowStateKey?: string;
 }
 
 interface IEditorWorkingSetState extends IEditorWorkingSet {
@@ -157,9 +158,14 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 
 	private readonly _onDidCreateAuxiliaryEditorPart = this._register(new Emitter<IAuxiliaryEditorPart>());
 	readonly onDidCreateAuxiliaryEditorPart = this._onDidCreateAuxiliaryEditorPart.event;
+	private readonly auxiliaryWindowStateKeys = new Map<number, string>();
 
 	async createAuxiliaryEditorPart(options?: IAuxiliaryEditorPartOpenOptions): Promise<IAuxiliaryEditorPart> {
 		const { part, instantiationService, disposables } = await this.instantiationService.createInstance(AuxiliaryEditorPart, this).create(this.getGroupsLabel(this._parts.size), options);
+		if (options?.windowStateKey) {
+			this.auxiliaryWindowStateKeys.set(part.windowId, options.windowStateKey);
+			disposables.add(toDisposable(() => this.auxiliaryWindowStateKeys.delete(part.windowId)));
+		}
 
 		// Keep instantiation service
 		this.mapPartToInstantiationService.set(part.windowId, instantiationService);
@@ -479,6 +485,7 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 				.filter(({ auxiliaryWindow }) => auxiliaryWindow !== undefined)
 				.map(({ part, auxiliaryWindow }) => ({
 					state: part.createState(),
+					windowStateKey: this.auxiliaryWindowStateKeys.get(part.windowId),
 					...auxiliaryWindow!.createState()
 				})),
 			mru: this.mostRecentActiveParts.map(part => this.parts.indexOf(part))

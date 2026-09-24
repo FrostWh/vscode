@@ -297,7 +297,16 @@ export function prepareBuiltInCopilotRipgrepShim(platform: string, arch: string,
 	const copilotBase = path.join(extensionNodeModules, '@github', 'copilot');
 	const copilotSdkBase = path.join(copilotBase, 'sdk');
 	if (!fs.existsSync(copilotSdkBase)) {
-		throw new Error(`[prepareBuiltInCopilotRipgrepShim] Copilot SDK directory not found at ${copilotSdkBase}`);
+		// The extension bundle intentionally keeps only its npm loader, while the
+		// product task still needs the SDK payload before platform pruning and
+		// ripgrep materialization. Rehydrate it from the locked source dependency
+		// instead of producing a package that only works in VSCODE_DEV mode.
+		const sourceCopilotBase = path.resolve(import.meta.dirname, '..', '..', 'extensions', 'copilot', 'node_modules', '@github', 'copilot');
+		if (!fs.existsSync(path.join(sourceCopilotBase, 'sdk'))) {
+			throw new Error(`[prepareBuiltInCopilotRipgrepShim] Copilot SDK directory not found at ${copilotSdkBase} or ${sourceCopilotBase}`);
+		}
+		fs.mkdirSync(path.dirname(copilotBase), { recursive: true });
+		fs.cpSync(sourceCopilotBase, copilotBase, { recursive: true, force: true });
 	}
 	materializeBuiltInCopilotSdkPlatformFiles(copilotPackagePlatformArch, tgrepPlatformArch, copilotBase, appNodeModulesDir);
 	pruneNonTargetCopilotSdkPrebuilds(copilotPackagePlatformArch, path.join(copilotSdkBase, 'prebuilds'), copilotPlatforms);

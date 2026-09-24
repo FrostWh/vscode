@@ -34,14 +34,20 @@ import { IEditorResolverService, ResolvedStatus } from '../common/editorResolver
 import { IWorkspaceTrustRequestService, WorkspaceTrustUriResponse } from '../../../../platform/workspace/common/workspaceTrust.js';
 import { IHostService } from '../../host/browser/host.js';
 import { findGroup } from '../common/editorGroupFinder.js';
+import { editorGroupToColumn } from '../common/editorGroupColumn.js';
 import { ITextEditorService } from '../../textfile/common/textEditorService.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 
-const RUITUCONFIG_STUDIO_OPEN_LOCATION_COMMAND = 'ruitucfg.studio.openLocation';
+const LICONFIG_OPEN_TABULAR_LOCATION_COMMAND = 'liconfig.studio.openLocation';
 
-function isRuiTuConfigStudioResource(resource: URI | undefined): resource is URI {
-	return resource?.scheme === Schemas.file && extname(resource).toLowerCase() === '.csvx';
+function isLiConfigTabularResource(resource: URI | undefined, csvEnabled: boolean): resource is URI {
+	if (resource?.scheme !== Schemas.file && resource?.scheme !== 'liconfig-xlsx') {
+		return false;
+	}
+
+	const extension = extname(resource).toLowerCase();
+	return extension === '.xlsx' || (extension === '.csv' && csvEnabled);
 }
 
 function isExplicitEditorOverride(options: IEditorOptions | undefined): boolean {
@@ -555,9 +561,9 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 			preferredGroup = optionsOrPreferredGroup;
 		}
 
-		const ruiTuConfigStudioEditorPane = await this.tryOpenRuiTuConfigStudioEditor(editor, options);
-		if (ruiTuConfigStudioEditorPane) {
-			return ruiTuConfigStudioEditorPane;
+		const liConfigResult = await this.tryOpenLiConfigTabularLocation(editor, options, preferredGroup);
+		if (liConfigResult.handled) {
+			return liConfigResult.pane;
 		}
 
 		// Resolve override unless disabled
@@ -610,25 +616,51 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 		return group.openEditor(typedEditor, options);
 	}
 
-	private async tryOpenRuiTuConfigStudioEditor(editor: EditorInput | IUntypedEditorInput, options: IEditorOptions | undefined): Promise<IEditorPane | undefined> {
-		if (!isResourceEditorInput(editor) || !isRuiTuConfigStudioResource(editor.resource) || isExplicitEditorOverride(options)) {
-			return undefined;
+	private tabularViewColumn(group: PreferredGroup | undefined): number | undefined {
+		if (group === undefined) { return undefined; }
+		if (typeof group === 'number' && group < 0) { return group; }
+		return editorGroupToColumn(this.editorGroupService, group) + 1;
+	}
+
+	private async tryOpenLiConfigTabularLocation(editor: EditorInput | IUntypedEditorInput, options: IEditorOptions | undefined, preferredGroup: PreferredGroup | undefined): Promise<{ handled: false } | { handled: true; pane: IEditorPane | undefined }> {
+		const csvEnabled = this.configurationService.getValue<boolean>('liconfig.csv.enabled') ?? true;
+		if (!isResourceEditorInput(editor) || !isLiConfigTabularResource(editor.resource, csvEnabled) || isExplicitEditorOverride(options)) {
+			return { handled: false };
 		}
 
 		const selection = (options as { selection?: { startLineNumber?: number; startColumn?: number } } | undefined)?.selection;
+		// Plain opens (Explorer double click, startup restore, CLI open) must be
+		// resolved directly by the default XLSX custom editor. Only location-aware
+		// navigation needs the command bridge; routing every open through it causes
+		// a re-entrant editorService -> extension -> vscode.openWith cycle.
+		const isCsv = extname(editor.resource).toLowerCase() === '.csv';
+		if (!isCsv && typeof selection?.startLineNumber !== 'number' && typeof selection?.startColumn !== 'number') {
+			return { handled: false };
+		}
 
 		try {
-			await this.commandService.executeCommand(RUITUCONFIG_STUDIO_OPEN_LOCATION_COMMAND, {
+			const handled = await this.commandService.executeCommand<boolean>(LICONFIG_OPEN_TABULAR_LOCATION_COMMAND, {
 				uri: editor.resource.toString(),
 				filePath: editor.resource.fsPath,
+				viewColumn: this.tabularViewColumn(preferredGroup),
 				line: typeof selection?.startLineNumber === 'number' ? selection.startLineNumber - 1 : undefined,
 				character: typeof selection?.startColumn === 'number' ? selection.startColumn - 1 : undefined
 			});
-
-			return this.activeEditorPane;
+			if (handled !== true) {
+				return { handled: false };
+			}
 		} catch {
-			return undefined;
+			// The LiConfig extension may be disabled, unavailable or still
+			// incompatible with this host. Preserve VS Code's native editor and
+			// every third-party language extension by falling through unchanged.
+			return { handled: false };
 		}
+
+		// The command owns opening/revealing the custom editor. Do not use an
+		// immediately observed active pane as the handled signal: on a cold
+		// extension activation it can still be undefined, which previously let
+		// XLSX fall through and briefly open as a text editor.
+		return { handled: true, pane: this.activeEditorPane };
 	}
 
 	//#endregion
@@ -649,6 +681,44 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 				return [];
 			}
 		}
+
+		const liConfigPanes: IEditorPane[] = [];
+		const regularEditors: Array<EditorInputWithOptions | IUntypedEditorInput> = [];
+		for (const editor of editors) {
+			const resource = isEditorInputWithOptions(editor)
+				? EditorResourceAccessor.getOriginalUri(editor.editor)
+				: isResourceEditorInput(editor) ? editor.resource : undefined;
+			const editorOptions = isEditorInputWithOptions(editor) ? editor.options : editor.options;
+			const csvEnabled = this.configurationService.getValue<boolean>('liconfig.csv.enabled') ?? true;
+			if (!URI.isUri(resource) || !isLiConfigTabularResource(resource, csvEnabled) || isExplicitEditorOverride(editorOptions)) {
+				regularEditors.push(editor);
+				continue;
+			}
+			const selection = (editorOptions as { selection?: { startLineNumber?: number; startColumn?: number } } | undefined)?.selection;
+			const isCsv = extname(resource).toLowerCase() === '.csv';
+			if (!isCsv && typeof selection?.startLineNumber !== 'number' && typeof selection?.startColumn !== 'number') {
+				regularEditors.push(editor);
+				continue;
+			}
+			try {
+				const handled = await this.commandService.executeCommand<boolean>(LICONFIG_OPEN_TABULAR_LOCATION_COMMAND, {
+					uri: resource.toString(), filePath: resource.fsPath,
+					viewColumn: this.tabularViewColumn(preferredGroup),
+					line: typeof selection?.startLineNumber === 'number' ? selection.startLineNumber - 1 : undefined,
+					character: typeof selection?.startColumn === 'number' ? selection.startColumn - 1 : undefined
+				});
+				if (handled !== true) {
+					regularEditors.push(editor);
+					continue;
+				}
+				if (this.activeEditorPane) {
+					liConfigPanes.push(this.activeEditorPane);
+				}
+			} catch {
+				regularEditors.push(editor);
+			}
+		}
+		editors = regularEditors;
 
 		// Find target groups for editors to open
 		const mapGroupToTypedEditors = new Map<IEditorGroup, Array<EditorInputWithOptions>>();
@@ -712,7 +782,7 @@ export class EditorService extends Disposable implements EditorServiceImpl {
 			result.push(group.openEditors(editors));
 		}
 
-		return coalesce(await Promises.settled(result));
+		return [...liConfigPanes, ...coalesce(await Promises.settled(result))];
 	}
 
 	private async handleWorkspaceTrust(editors: Array<EditorInputWithOptions | IUntypedEditorInput>): Promise<boolean> {

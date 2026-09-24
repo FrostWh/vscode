@@ -57,6 +57,7 @@ export class DiagnosticRelatedInformation {
 
 @es5ClassCompat
 export class Diagnostic {
+	locationLabel?: string;
 
 	range: Range;
 	message: string;
@@ -78,13 +79,14 @@ export class Diagnostic {
 		this.severity = severity;
 	}
 
-	toJSON(): { severity: string; message: string; range: Range; source?: string; code?: string | number } {
+	toJSON(): { severity: string; message: string; range: Range; source?: string; code?: string | number; locationLabel?: string } {
 		return {
 			severity: DiagnosticSeverity[this.severity],
 			message: this.message,
 			range: this.range,
 			source: this.source,
 			code: this.code,
+			locationLabel: this.locationLabel,
 		};
 	}
 
@@ -100,6 +102,7 @@ export class Diagnostic {
 			&& a.code === b.code
 			&& a.severity === b.severity
 			&& a.source === b.source
+			&& a.locationLabel === b.locationLabel
 			&& a.range.isEqual(b.range)
 			&& equals(a.tags, b.tags)
 			&& equals(a.relatedInformation, b.relatedInformation, DiagnosticRelatedInformation.isEqual);

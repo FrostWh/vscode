@@ -1,10 +1,12 @@
 {
-	"name": "Code - OSS",
-	"short_name": "Code- OSS",
+	"name": "LiConfig",
+	"short_name": "LiConfig",
 	"start_url": "/",
 	"lang": "en-US",
 	"display": "standalone",
-	"display_override": ["window-controls-overlay"],
+	"display_override": [
+		"window-controls-overlay"
+	],
 	"icons": [
 		{
 			"src": "code-192.png",

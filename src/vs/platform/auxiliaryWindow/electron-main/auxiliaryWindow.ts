@@ -13,6 +13,7 @@ import { IStateService } from '../../state/node/state.js';
 import { hasNativeTitlebar, TitlebarStyle } from '../../window/common/window.js';
 import { IBaseWindow, WindowMode } from '../../window/electron-main/window.js';
 import { BaseWindow } from '../../windows/electron-main/windowImpl.js';
+import { Event } from '../../../base/common/event.js';
 
 export interface IAuxiliaryWindow extends IBaseWindow {
 	readonly parentId: number;
@@ -36,6 +37,7 @@ export class AuxiliaryWindow extends BaseWindow implements IAuxiliaryWindow {
 	constructor(
 		private readonly webContents: WebContents,
 		private readonly windowOptions: BrowserWindowConstructorOptions | undefined,
+		private readonly windowStateKey: string | undefined,
 		@IEnvironmentMainService environmentMainService: IEnvironmentMainService,
 		@ILogService logService: ILogService,
 		@IConfigurationService configurationService: IConfigurationService,
@@ -88,6 +90,22 @@ export class AuxiliaryWindow extends BaseWindow implements IAuxiliaryWindow {
 
 			// Remember
 			this.setWin(window, options);
+			if (this.windowStateKey) {
+				// Persist actual native bounds, not DOM outerWidth/screenX (which
+				// include invisible resize borders on Windows). Keep normal bounds
+				// while maximized so restore does not permanently enlarge the window.
+				const saveWindowState = () => {
+					this.stateService.setItem(this.windowStateKey!, {
+						...(window.isMaximized() || window.isMinimized() ? window.getNormalBounds() : window.getBounds()),
+						mode: window.isMaximized() ? WindowMode.Maximized : WindowMode.Normal
+					});
+				};
+				// Renderer-initiated window.close can bypass Electron's close
+				// event. Capture native transitions as well; state storage batches writes.
+				for (const event of ['move', 'resize', 'maximize', 'unmaximize', 'close']) {
+					this._register(Event.fromNodeEventEmitter(window, event)(saveWindowState));
+				}
+			}
 
 			// Disable Menu
 			window.setMenu(null);

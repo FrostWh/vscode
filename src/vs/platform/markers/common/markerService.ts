@@ -228,7 +228,7 @@ export class MarkerService implements IMarkerService {
 	private static _toMarker(owner: string, resource: URI, data: IMarkerData): IMarker | undefined {
 		let {
 			code, severity,
-			message, source,
+			message, source, locationLabel,
 			startLineNumber, startColumn, endLineNumber, endColumn,
 			relatedInformation,
 			modelVersionId,
@@ -249,6 +249,7 @@ export class MarkerService implements IMarkerService {
 			resource,
 			owner,
 			code,
+			locationLabel: typeof locationLabel === 'string' ? locationLabel : undefined,
 			severity,
 			message,
 			source,

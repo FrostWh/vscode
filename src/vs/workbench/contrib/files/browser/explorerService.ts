@@ -281,6 +281,11 @@ export class ExplorerService implements IExplorerService {
 	}
 
 	async select(resource: URI, reveal?: boolean | string): Promise<void> {
+		// Workbook projections retain the physical path; Explorer owns disk resources.
+		if (resource.scheme === 'liconfig-xlsx') {
+			resource = resource.with({ scheme: 'file' });
+		}
+
 		if (!this.view) {
 			return;
 		}

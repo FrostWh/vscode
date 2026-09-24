@@ -43,6 +43,15 @@ const rcedit = promisify(rceditCallback);
 const root = path.dirname(import.meta.dirname);
 const commit = getVersion(root);
 
+function getNodePtyExcludeFilter(platform: string, arch: string): string[] {
+	const nodePlatform = platform === 'alpine' ? 'linux' : platform;
+	const nodeArch = arch === 'armhf' ? 'arm' : arch === 'alpine' ? 'x64' : arch;
+	const target = `${nodePlatform}-${nodeArch}`;
+	const platforms = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64'];
+	return ['**', ...platforms.filter(candidate => candidate !== target)
+		.map(candidate => `!**/node_modules/node-pty/prebuilds/${candidate}/**`)];
+}
+
 // Build
 const vscodeEntryPoints = [
 	buildfile.workerEditor,
@@ -343,6 +352,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 		ensureCopilotPlatformPackage(platform, arch);
 		const copilotRuntimePrebuilds = gulp.src(getCopilotRuntimePrebuildFiles(platform, arch), { base: '.', dot: true, allowEmpty: true });
 		const deps = es.merge(cleanedDeps, copilotRuntimePrebuilds)
+			.pipe(filter(getNodePtyExcludeFilter(platform, arch)))
 			.pipe(filter(getCopilotExcludeFilter(platform, arch)))
 			.pipe(filter(getCopilotTgrepExcludeFilter(platform, arch)))
 			.pipe(filter(getRipgrepExcludeFilter(platform, arch)))
@@ -534,7 +544,10 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 function hasAuthenticodeSignature(filePath: string): Promise<boolean> {
 	return new Promise((resolve, reject) => {
 		const proc = cp.spawn('signtool.exe', ['verify', '/pa', filePath]);
-		proc.on('error', reject);
+		// Portable unsigned product builds do not require the Windows SDK. If
+		// signtool is unavailable there cannot be a signature we need to strip;
+		// release signing remains a separate setup/signing pipeline concern.
+		proc.on('error', error => (error as NodeJS.ErrnoException).code === 'ENOENT' ? resolve(false) : reject(error));
 		proc.on('exit', code => resolve(code === 0));
 	});
 }
@@ -581,6 +594,18 @@ function patchWin32DependenciesTask(destinationFolderName: string) {
 		const patchPromises = deps.map<Promise<unknown>>(async dep => {
 			const basename = path.basename(dep);
 			const fullPath = path.join(cwd, dep);
+			const header = Buffer.allocUnsafe(2);
+			const handle = await fs.promises.open(fullPath, 'r');
+			try {
+				const { bytesRead } = await handle.read(header, 0, header.length, 0);
+				// A packaged dependency tree can contain native payloads for other
+				// platforms. rcedit only accepts Windows PE files (MZ header).
+				if (bytesRead !== 2 || header[0] !== 0x4D || header[1] !== 0x5A) {
+					return;
+				}
+			} finally {
+				await handle.close();
+			}
 
 			await stripAuthenticodeSignature(fullPath);
 			await rcedit(fullPath, {

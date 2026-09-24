@@ -43,6 +43,8 @@ export enum AuxiliaryWindowMode {
 }
 
 export interface IAuxiliaryWindowOpenOptions {
+	/** Stable, workspace-qualified identity for native tool-window state. */
+	readonly windowStateKey?: string;
 	readonly bounds?: Partial<IRectangle>;
 	readonly compact?: boolean;
 
@@ -363,6 +365,7 @@ export class BrowserAuxiliaryWindowService extends Disposable implements IAuxili
 			`height=${newWindowBounds.height}`,
 
 			// non-standard properties
+			options?.windowStateKey ? `window-state-key=${encodeURIComponent(options.windowStateKey)}` : undefined,
 			options?.nativeTitlebar ? 'window-native-titlebar=yes' : undefined,
 			options?.disableFullscreen ? 'window-disable-fullscreen=yes' : undefined,
 			options?.alwaysOnTop ? 'window-always-on-top=yes' : undefined,

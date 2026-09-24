@@ -5,11 +5,16 @@
 
 import * as nls from '../../../../nls.js';
 import { basename } from '../../../../base/common/resources.js';
-import { MarkerSeverity, IRelatedInformation } from '../../../../platform/markers/common/markers.js';
+import { MarkerSeverity, IRelatedInformation, IMarkerData } from '../../../../platform/markers/common/markers.js';
 import { ILocalizedString } from '../../../../platform/action/common/action.js';
 import { Marker } from './markersModel.js';
 
 export default class Messages {
+
+	public static MARKERS_PANEL_LOCATION(marker: IMarkerData): string {
+		return marker.locationLabel ? `[${marker.locationLabel}]`
+			: Messages.MARKERS_PANEL_AT_LINE_COL_NUMBER(marker.startLineNumber, marker.startColumn);
+	}
 
 	public static MARKERS_PANEL_TOGGLE_LABEL: string = nls.localize('problems.view.toggle.label', "Toggle Problems (Errors, Warnings, Infos)");
 	public static MARKERS_PANEL_SHOW_LABEL = nls.localize2('problems.view.focus.label', "Focus Problems (Errors, Warnings, Infos)");

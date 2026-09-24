@@ -29,6 +29,7 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { PLAINTEXT_LANGUAGE_ID } from '../../../../../editor/common/languages/modesRegistry.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IEditorPaneService } from '../../common/editorPaneService.js';
+import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 
 suite('EditorService', () => {
 
@@ -69,6 +70,155 @@ suite('EditorService', () => {
 	function createTestFileEditorInput(resource: URI, typeId: string): TestFileEditorInput {
 		return disposables.add(new TestFileEditorInput(resource, typeId));
 	}
+
+	test('openEditor() routes a XLSX location to LiConfig Studio without text fallback', async () => {
+		const calls: Array<{ command: string; argument: unknown }> = [];
+		const instantiationService = workbenchInstantiationService(undefined, disposables);
+		instantiationService.stub(ICommandService, {
+			executeCommand: async (command: string, argument: unknown) => {
+				calls.push({ command, argument });
+				return true;
+			}
+		} as unknown as ICommandService);
+		const [, service] = await createEditorService(instantiationService);
+		const resource = URI.file('/workspace/Datas/items.xlsx');
+
+		const pane = await service.openEditor({ resource, options: { selection: { startLineNumber: 7, startColumn: 4 } } });
+
+		assert.strictEqual(pane, undefined);
+		assert.strictEqual(service.count, 0, 'XLSX must not fall through into an ordinary editor while Studio activates');
+		assert.deepStrictEqual(calls, [{
+			command: 'liconfig.studio.openLocation',
+			argument: { uri: resource.toString(), filePath: resource.fsPath, viewColumn: undefined, line: 6, character: 3 }
+		}]);
+	});
+
+	test('openEditor() routes a CSV location through the same tabular boundary', async () => {
+		const calls: string[] = [];
+		const instantiationService = workbenchInstantiationService(undefined, disposables);
+		instantiationService.stub(ICommandService, {
+			executeCommand: async (command: string) => {
+				calls.push(command);
+				return true;
+			}
+		} as unknown as ICommandService);
+		const [, service] = await createEditorService(instantiationService);
+
+		await service.openEditor({
+			resource: URI.file('/workspace/Datas/items.csv'),
+			options: { selection: { startLineNumber: 3, startColumn: 2 } }
+		});
+
+		assert.deepStrictEqual(calls, ['liconfig.studio.openLocation']);
+		assert.strictEqual(service.count, 0);
+	});
+
+	for (const scheme of ['file', 'liconfig-xlsx']) {
+		test(`openEditor() routes an XLSX ${scheme} location through the same tabular boundary`, async () => {
+			const calls: Array<{ command: string; argument: unknown }> = [];
+			const instantiationService = workbenchInstantiationService(undefined, disposables);
+			instantiationService.stub(ICommandService, {
+				executeCommand: async (command: string, argument: unknown) => {
+					calls.push({ command, argument });
+					return true;
+				}
+			} as unknown as ICommandService);
+			const [, service] = await createEditorService(instantiationService);
+			const resource = URI.file('/workspace/Datas/items.xlsx').with({ scheme });
+
+			await service.openEditor({
+				resource,
+				options: { selection: { startLineNumber: 9, startColumn: 6 } }
+			});
+
+			assert.strictEqual(service.count, 0);
+			assert.deepStrictEqual(calls, [{
+				command: 'liconfig.studio.openLocation',
+				argument: { uri: resource.toString(), filePath: resource.fsPath, viewColumn: undefined, line: 8, character: 5 }
+			}]);
+		});
+	}
+
+	test('openEditor() preserves native language editors outside CSV and XLSX', async () => {
+		const calls: string[] = [];
+		const instantiationService = workbenchInstantiationService(undefined, disposables);
+		instantiationService.stub(ICommandService, {
+			executeCommand: async (command: string) => {
+				calls.push(command);
+				return undefined;
+			}
+		} as unknown as ICommandService);
+		const [, service] = await createEditorService(instantiationService);
+
+		await service.openEditor({
+			resource: URI.file('/workspace/Scripts/player.as'),
+			options: { selection: { startLineNumber: 8, startColumn: 5 } }
+		});
+
+		assert.deepStrictEqual(calls, []);
+		assert.strictEqual(service.count, 1, 'AS and every non-tabular language must retain native VS Code routing');
+	});
+
+	test('openEditor() falls back to native routing when LiConfig Studio is unavailable', async () => {
+		const instantiationService = workbenchInstantiationService(undefined, disposables);
+		instantiationService.stub(ICommandService, {
+			executeCommand: async () => {
+				throw new Error('LiConfig Studio command is not registered');
+			}
+		} as unknown as ICommandService);
+		const [, service] = await createEditorService(instantiationService);
+
+		await service.openEditor({
+			resource: URI.file('/workspace/Datas/items.xlsx'),
+			options: { selection: { startLineNumber: 7, startColumn: 4 } }
+		});
+
+		assert.strictEqual(service.count, 1, 'a missing LiConfig Studio extension must not swallow the editor open');
+	});
+
+	test('openEditor() leaves CSV native when LiConfig CSV support is disabled', async () => {
+		const calls: string[] = [];
+		const instantiationService = workbenchInstantiationService(undefined, disposables);
+		const configurationService = new TestConfigurationService();
+		await configurationService.setUserConfiguration('liconfig.csv.enabled', false);
+		instantiationService.stub(IConfigurationService, configurationService);
+		instantiationService.stub(ICommandService, {
+			executeCommand: async (command: string) => {
+				calls.push(command);
+				return true;
+			}
+		} as unknown as ICommandService);
+		const [, service] = await createEditorService(instantiationService);
+
+		await service.openEditor({ resource: URI.file('/workspace/Datas/items.csv') });
+
+		assert.deepStrictEqual(calls, []);
+		assert.strictEqual(service.count, 1, 'CSV plug-ins and the native text editor must retain ownership in off mode');
+	});
+
+	test('openEditors() routes every XLSX location to LiConfig Studio without text fallback', async () => {
+		const calls: string[] = [];
+		const instantiationService = workbenchInstantiationService(undefined, disposables);
+		instantiationService.stub(ICommandService, {
+			executeCommand: async (command: string, argument: { uri: string }) => {
+				assert.strictEqual(command, 'liconfig.studio.openLocation');
+				calls.push(argument.uri);
+				return true;
+			}
+		} as unknown as ICommandService);
+		const [, service] = await createEditorService(instantiationService);
+		const first = URI.file('/workspace/Datas/first.xlsx');
+		const second = URI.file('/workspace/Datas/second.xlsx');
+
+		const panes = await service.openEditors([
+			{ resource: first, options: { selection: { startLineNumber: 1, startColumn: 1 } } },
+			{ resource: second, options: { selection: { startLineNumber: 2, startColumn: 2 } } }
+		]);
+
+		assert.deepStrictEqual(panes, []);
+		assert.strictEqual(service.count, 0);
+		assert.deepStrictEqual(calls, [first.toString(), second.toString()]);
+	});
 
 	test('openEditor() - basics', async () => {
 		const [, service, accessor] = await createEditorService();
